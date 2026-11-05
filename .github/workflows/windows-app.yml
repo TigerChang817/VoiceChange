@@ -1,0 +1,41 @@
+name: Build Windows desktop app
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'voice_changer/**'
+      - 'desktop.py'
+      - 'VoiceChange.spec'
+      - 'requirements*.txt'
+      - 'tests/**'
+      - '.github/workflows/windows-app.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements-build.txt
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+      - name: Package app
+        run: python -m PyInstaller --noconfirm VoiceChange.spec
+      - name: Smoke test packaged app
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $env:VOICECHANGE_SMOKE_TEST = '1'
+          $app = Start-Process -FilePath '.\dist\VoiceChange\VoiceChange.exe' -PassThru -Wait
+          if ($app.ExitCode -ne 0) { throw "Packaged smoke test failed: $($app.ExitCode)" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VoiceChange-Windows-x64
+          path: dist/VoiceChange/
+          if-no-files-found: error

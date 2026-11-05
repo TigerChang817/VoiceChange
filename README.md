@@ -5,6 +5,20 @@ Windows 10 / 11 的桌面控制程式，用於 **麥克風 → 本機 RVC 串流
 
 以即時聊天為設計目標：48kHz、64–256ms PCM 區塊、AI 引擎保留上下文及 SOLA 接縫處理、GPU 預熱、有限緩衝與過期音訊丟棄。**尚未在 Windows / NVIDIA / Discord 上完成端到端實測，不保證特定延遲或女聲自然度。** 不採用先錄一整段再做檔案轉換的流程。
 
+## 桌面執行檔與捷徑
+
+### 從 GitHub 下載
+
+到儲存庫的 **Actions → Build Windows desktop app**，選擇對應最新版提交且成功的執行紀錄，下載 **VoiceChange-Windows-x64** artifact（下載可能需要登入 GitHub）。完整解壓縮，雙擊 `VoiceChange.exe`。請保留旁邊的 `_internal` 資料夾，不要只搬 exe。
+
+對 `VoiceChange.exe` 按右鍵 → 顯示其他選項 → 傳送到 → 桌面（建立捷徑）。這個版本不需要另外安裝 Python；AI 引擎、模型與 VB-CABLE 仍需保留。執行檔尚未數位簽章，Windows 可能顯示發行者不明；請只使用自己信任且對應本儲存庫的建置。
+
+### 在自己的 Windows 打包
+
+已完成下方 Python 安裝、專案內有 `.venv` 時，直接雙擊 **`scripts\build-windows.cmd`**。它會安裝打包工具、跑測試、產生 `dist\VoiceChange\VoiceChange.exe`，並建立桌面捷徑。不需要執行 `.ps1` 或修改 PowerShell 執行政策。請保留 `dist\VoiceChange` 整個資料夾；再次打包前先關閉舊版程式。
+
+GitHub workflow 使用 Windows runner 執行測試、PyInstaller 打包與打包後的 GUI/PortAudio 啟動測試。Linux 本機只能驗證原始碼與介面；**只有對應 Actions 成功才表示 Windows 打包與啟動檢查通過**，仍不代表 GPU 變聲與 Discord 實機測試通過。
+
 ## Windows 安裝
 
 1. 安裝 [Python 3.11](https://www.python.org/downloads/)（含 Tcl/Tk 與 py launcher）。

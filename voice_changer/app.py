@@ -14,8 +14,8 @@ class App:
     def __init__(self, root):
         self.root = root
         root.title('VoiceChange · AI 女聲變聲器')
-        root.geometry('820x960')
-        root.minsize(780, 940)
+        root.geometry('1040x820')
+        root.minsize(760, 640)
         self.events = Queue(maxsize=100)
         self.launcher = EngineLauncher()
         self.launching = False
@@ -37,65 +37,149 @@ class App:
         self.status = tk.StringVar(value='首次請選擇 AI 引擎；之後會自動啟動後端。')
         self.metrics = tk.StringVar(value='等待啟動')
         self.warning = tk.StringVar()
-        style = ttk.Style(root)
-        style.theme_use('clam')
-        style.configure('TLabel', font=('Microsoft JhengHei UI', 10))
-        style.configure('TButton', padding=8)
-        body = ttk.Frame(root, padding=24)
-        body.pack(fill='both', expand=True)
-        ttk.Label(body, text='把你的聲音，換個角色。', font=('Microsoft JhengHei UI', 22, 'bold')).pack(anchor='w')
-        ttk.Label(body, text='本機 AI 轉換 · Windows / Discord', foreground='#5865f2').pack(anchor='w', pady=(4, 18))
-        engine_controls = ttk.Frame(body)
-        engine_controls.pack(fill='x', pady=(0, 8))
-        self.choose_engine_button = ttk.Button(engine_controls, text='選擇 AI 引擎', command=self.choose_engine)
-        self.choose_engine_button.pack(side='left')
-        self.launch_button = ttk.Button(engine_controls, text='啟動 AI 引擎', command=self.launch_engine)
-        self.launch_button.pack(side='left', padx=8)
-        ttk.Button(engine_controls, text='模型管理', command=lambda: webbrowser.open(self.api.url)).pack(side='left')
-        self.input_box = self.combo(body, '麥克風輸入', self.input)
-        self.output_box = self.combo(body, 'Discord 輸出裝置（CABLE Input）', self.output)
-        self.monitor_box = self.combo(body, '監聽耳機（可不選；開始後可即時開關監聽）', self.monitor_device)
-        self.model_box = self.combo(body, '女聲 RVC 模型', self.model)
-        row = ttk.Frame(body)
-        row.pack(fill='x', pady=8)
-        ttk.Label(row, text='音高（半音）').pack(side='left')
-        self.pitch_box = ttk.Spinbox(row, from_=-12, to=12, textvariable=self.pitch, width=5, state='readonly')
-        self.pitch_box.pack(side='left', padx=10)
-        ttk.Label(row, text='音訊區塊（毫秒）').pack(side='left', padx=(24, 0))
-        self.seconds_box = ttk.Combobox(row, values=('64', '96', '128', '192', '256'), textvariable=self.seconds, width=5, state='readonly')
-        self.seconds_box.pack(side='left', padx=10)
-        ttk.Label(body, text='先試 +6 半音，再依模型調整。實際延遲包含區塊、推論與緩衝。', wraplength=700).pack(anchor='w')
-        listening = ttk.Frame(body)
-        listening.pack(fill='x', pady=8)
-        self.monitor_button = ttk.Button(listening, text='監聽：關（點我聽自己）', command=self.toggle_monitor)
-        self.monitor_button.pack(side='left')
-        self.output_volume_label = tk.StringVar(value='Discord 音量：100%')
-        self.monitor_volume_label = tk.StringVar(value='監聽音量：50%')
-        for label, variable, maximum in ((self.output_volume_label, self.output_volume, 200),
-                                         (self.monitor_volume_label, self.monitor_volume, 100)):
-            volume_row = ttk.Frame(body)
-            volume_row.pack(fill='x', pady=3)
-            ttk.Label(volume_row, textvariable=label, width=23).pack(side='left')
-            ttk.Scale(volume_row, from_=0, to=maximum, variable=variable,
-                      command=self.update_volume).pack(side='left', fill='x', expand=True)
-        controls = ttk.Frame(body)
-        controls.pack(fill='x', pady=18)
-        self.refresh_button = ttk.Button(controls, text='重新整理裝置 / 模型', command=self.refresh)
-        self.refresh_button.pack(side='left')
-        self.start_button = ttk.Button(controls, text='開始變聲', command=self.start)
-        self.start_button.pack(side='left', padx=10)
-        self.stop_button = ttk.Button(controls, text='停止', command=self.stop, state='disabled')
-        self.stop_button.pack(side='left')
-        ttk.Separator(body).pack(fill='x')
-        ttk.Label(body, textvariable=self.status, wraplength=700).pack(anchor='w', pady=(14, 8))
-        ttk.Label(body, textvariable=self.metrics, wraplength=700).pack(anchor='w')
-        ttk.Label(body, textvariable=self.warning, foreground='#b45309', wraplength=700).pack(anchor='w', pady=8)
-        ttk.Label(body, text='Discord：輸入裝置選 CABLE Output，輸出裝置選耳機。\n先關閉 Krisp、降噪、自動增益，再測試音量。停止時輸出靜音，不會回送原聲。', wraplength=700).pack(anchor='w', pady=8)
+        self.build_interface(root)
         root.protocol('WM_DELETE_WINDOW', self.close)
         root.after(100, self.poll)
         self.refresh()
         if self.launcher.saved_executable():
             root.after(500, self.launch_engine)
+
+    def build_interface(self, root):
+        bg, panel, field = '#0d1120', '#191f32', '#11172a'
+        text, muted, accent = '#edf1ff', '#9aa8c8', '#8b78ff'
+        root.configure(bg=bg)
+        root.option_add('*TCombobox*Listbox.background', field)
+        root.option_add('*TCombobox*Listbox.foreground', text)
+        root.option_add('*TCombobox*Listbox.selectBackground', '#4c4482')
+        style = ttk.Style(root)
+        style.theme_use('clam')
+        style.configure('.', font=('Microsoft JhengHei UI', 10), background=panel, foreground=text)
+        style.configure('TFrame', background=panel)
+        style.configure('Page.TFrame', background=bg)
+        style.configure('TLabel', background=panel, foreground=text)
+        style.configure('Muted.TLabel', foreground=muted)
+        style.configure('Title.TLabel', font=('Segoe UI', 25, 'bold'), background=bg)
+        style.configure('Kicker.TLabel', foreground=accent, background=bg, font=('Segoe UI', 9, 'bold'))
+        style.configure('Subtitle.TLabel', foreground=muted, background=bg)
+        style.configure('Section.TLabel', font=('Microsoft JhengHei UI', 12, 'bold'))
+        style.configure('TButton', background='#2a334e', foreground=text, borderwidth=0, padding=(16, 10))
+        style.map('TButton', background=[('active', '#3a4665'), ('disabled', '#20273c')],
+                  foreground=[('disabled', '#65718e')])
+        style.configure('Primary.TButton', background='#7865ed', font=('Microsoft JhengHei UI', 11, 'bold'))
+        style.map('Primary.TButton', background=[('active', '#917eff'), ('disabled', '#373453')])
+        style.configure('MonitorOn.TButton', background='#145d55', foreground='#b1ffdf')
+        style.map('MonitorOn.TButton', background=[('active', '#207a6e')])
+        for widget in ('TCombobox', 'TSpinbox'):
+            style.configure(widget, fieldbackground=field, background='#2b3550', foreground=text,
+                            arrowcolor=muted, bordercolor='#303c59', padding=8)
+            style.map(widget, fieldbackground=[('readonly', field), ('disabled', '#22283a')],
+                      foreground=[('readonly', text), ('disabled', '#65718e')], selectbackground=[('readonly', field)])
+        style.configure('Horizontal.TScale', background=panel, troughcolor=field, sliderlength=18)
+        style.configure('TSeparator', background='#303b55')
+        header = ttk.Frame(root, style='Page.TFrame', padding=(28, 20, 28, 12))
+        header.pack(fill='x')
+        ttk.Label(header, text='YOUR VOICE, REIMAGINED', style='Kicker.TLabel').pack(anchor='w')
+        ttk.Label(header, text='VoiceChange', style='Title.TLabel').pack(anchor='w', pady=(2, 2))
+        ttk.Label(header, text='換一種聲線，保持你的節奏。', style='Subtitle.TLabel').pack(anchor='w')
+
+        # Keep start/stop and live status visible even on smaller screens.
+        footer = ttk.Frame(root, padding=(24, 14))
+        footer.pack(side='bottom', fill='x', padx=24, pady=(8, 20))
+        actions = ttk.Frame(footer)
+        actions.pack(fill='x')
+        self.start_button = ttk.Button(actions, text='開始變聲', style='Primary.TButton', command=self.start)
+        self.start_button.pack(side='right')
+        self.stop_button = ttk.Button(actions, text='停止', command=self.stop, state='disabled')
+        self.stop_button.pack(side='right', padx=10)
+        self.refresh_button = ttk.Button(actions, text='重新整理', command=self.refresh)
+        self.refresh_button.pack(side='left')
+        ttk.Label(footer, textvariable=self.status, wraplength=680).pack(anchor='w', pady=(12, 3))
+        ttk.Label(footer, textvariable=self.metrics, style='Muted.TLabel', wraplength=680).pack(anchor='w')
+        ttk.Label(footer, textvariable=self.warning, foreground='#ffc98a', wraplength=680).pack(anchor='w', pady=(3, 0))
+
+        viewport = ttk.Frame(root, style='Page.TFrame')
+        viewport.pack(fill='both', expand=True, padx=24)
+        canvas = tk.Canvas(viewport, bg=bg, highlightthickness=0, borderwidth=0)
+        scroll = ttk.Scrollbar(viewport, orient='vertical', command=canvas.yview)
+        scroll.pack(side='right', fill='y')
+        canvas.pack(side='left', fill='both', expand=True)
+        canvas.configure(yscrollcommand=scroll.set)
+        content = ttk.Frame(canvas, style='Page.TFrame')
+        window = canvas.create_window((0, 0), window=content, anchor='nw')
+        content.columnconfigure(0, weight=1, uniform='cards')
+        content.columnconfigure(1, weight=1, uniform='cards')
+        content.bind('<Configure>', lambda event: canvas.configure(scrollregion=canvas.bbox('all')))
+        self.engine_card = ttk.Frame(content, padding=20)
+        self.engine_card.grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0, 14))
+        self.section(self.engine_card, '01  AI 引擎', '首次選擇後端，之後自動啟動。')
+        engine_controls = ttk.Frame(self.engine_card)
+        engine_controls.pack(fill='x', pady=(12, 0))
+        self.choose_engine_button = ttk.Button(engine_controls, text='選擇 AI 引擎', command=self.choose_engine)
+        self.choose_engine_button.pack(side='left')
+        self.launch_button = ttk.Button(engine_controls, text='啟動引擎', command=self.launch_engine)
+        self.launch_button.pack(side='left', padx=8)
+        ttk.Button(engine_controls, text='模型管理', command=lambda: webbrowser.open(self.api.url)).pack(side='left')
+
+        self.route_card = ttk.Frame(content, padding=20)
+        self.route_card.grid(row=1, column=0, sticky='nsew', padx=(0, 7))
+        self.section(self.route_card, '02  聲音路由', '麥克風 → AI 變聲 → Discord / 耳機')
+        self.input_box = self.combo(self.route_card, '麥克風輸入', self.input)
+        self.output_box = self.combo(self.route_card, 'Discord 輸出 · CABLE Input', self.output)
+        self.monitor_box = self.combo(self.route_card, '監聽耳機 · 可選', self.monitor_device)
+        ttk.Label(self.route_card, text='Discord 輸入請選 CABLE Output。\n輸出請選耳機，避免回音。',
+                  style='Muted.TLabel', wraplength=350).pack(anchor='w', pady=(16, 0))
+
+        self.voice_card = ttk.Frame(content, padding=20)
+        self.voice_card.grid(row=1, column=1, sticky='nsew', padx=(7, 0))
+        self.section(self.voice_card, '03  聲線與監聽', '用耳機試聽，找到舒服的聲音。')
+        self.model_box = self.combo(self.voice_card, '女聲 RVC 模型', self.model)
+        tuning = ttk.Frame(self.voice_card)
+        tuning.pack(fill='x', pady=(14, 12))
+        left, right = ttk.Frame(tuning), ttk.Frame(tuning)
+        left.pack(side='left', fill='x', expand=True)
+        right.pack(side='left', fill='x', expand=True, padx=(16, 0))
+        ttk.Label(left, text='音高 · 半音', style='Muted.TLabel').pack(anchor='w', pady=(0, 5))
+        self.pitch_box = ttk.Spinbox(left, from_=-12, to=12, textvariable=self.pitch, width=7, state='readonly')
+        self.pitch_box.pack(fill='x')
+        ttk.Label(right, text='區塊 · 毫秒', style='Muted.TLabel').pack(anchor='w', pady=(0, 5))
+        self.seconds_box = ttk.Combobox(right, values=('64', '96', '128', '192', '256'),
+                                       textvariable=self.seconds, width=7, state='readonly')
+        self.seconds_box.pack(fill='x')
+        self.monitor_button = ttk.Button(self.voice_card, text='監聽已關閉 · 點我聽自己', command=self.toggle_monitor)
+        self.monitor_button.pack(fill='x', pady=(0, 12))
+        self.output_volume_label = tk.StringVar(value='Discord 音量：100%')
+        self.monitor_volume_label = tk.StringVar(value='監聽音量：50%')
+        for label, variable, maximum in ((self.output_volume_label, self.output_volume, 200),
+                                        (self.monitor_volume_label, self.monitor_volume, 100)):
+            ttk.Label(self.voice_card, textvariable=label, style='Muted.TLabel').pack(anchor='w')
+            ttk.Scale(self.voice_card, from_=0, to=maximum, variable=variable,
+                      command=self.update_volume).pack(fill='x', pady=(5, 12))
+        self._layout_columns = 2
+        def resize(event):
+            canvas.itemconfigure(window, width=event.width)
+            columns = 2 if event.width >= 860 else 1
+            if columns != self._layout_columns:
+                self._layout_columns = columns
+                self.route_card.grid_configure(columnspan=2 if columns == 1 else 1,
+                                               padx=(0, 0) if columns == 1 else (0, 7))
+                self.voice_card.grid_configure(row=2 if columns == 1 else 1, column=0 if columns == 1 else 1,
+                    columnspan=2 if columns == 1 else 1, padx=(0, 0) if columns == 1 else (7, 0),
+                    pady=(14, 0) if columns == 1 else (0, 0))
+            for widget in footer.winfo_children():
+                if isinstance(widget, ttk.Label):
+                    widget.configure(wraplength=max(350, event.width - 55))
+        canvas.bind('<Configure>', resize)
+        def wheel(event):
+            if event.widget.winfo_class() not in ('TCombobox', 'TSpinbox', 'TScale'):
+                canvas.yview_scroll(-int(event.delta / 120) if abs(event.delta) >= 120 else (-1 if event.delta > 0 else 1), 'units')
+        root.bind('<MouseWheel>', wheel)
+        canvas.bind('<Button-4>', lambda event: canvas.yview_scroll(-1, 'units'))
+        canvas.bind('<Button-5>', lambda event: canvas.yview_scroll(1, 'units'))
+
+    @staticmethod
+    def section(parent, title, subtitle):
+        ttk.Label(parent, text=title, style='Section.TLabel').pack(anchor='w')
+        ttk.Label(parent, text=subtitle, style='Muted.TLabel', wraplength=350).pack(anchor='w', pady=(5, 4))
 
     def choose_engine(self):
         if self.engine.running or self.launching:
@@ -139,10 +223,11 @@ class App:
             return
         self.monitor_enabled = not self.monitor_enabled
         self.engine.mixer.set_monitor(self.monitor_enabled)
-        self.monitor_button.config(text='監聽：開（點我關閉）' if self.monitor_enabled else '監聽：關（點我聽自己）')
+        self.monitor_button.config(text='監聽已開啟 · 點我關閉' if self.monitor_enabled else '監聽已關閉 · 點我聽自己',
+                                   style='MonitorOn.TButton' if self.monitor_enabled else 'TButton')
 
     def combo(self, parent, label, variable):
-        ttk.Label(parent, text=label).pack(anchor='w', pady=(6, 2))
+        ttk.Label(parent, text=label, style='Muted.TLabel').pack(anchor='w', pady=(12, 5))
         box = ttk.Combobox(parent, textvariable=variable, state='readonly')
         box.pack(fill='x')
         return box

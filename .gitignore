@@ -5,3 +5,5 @@ __pycache__/
 models/*
 !models/.gitkeep
 *.wav
+build/
+dist/
