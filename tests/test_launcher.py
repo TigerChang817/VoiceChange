@@ -43,7 +43,7 @@ class LauncherTests(unittest.TestCase):
         from unittest.mock import Mock, patch
         import subprocess
         with tempfile.TemporaryDirectory() as directory:
-            executable = Path(directory) / 'MMVCServerSIO.exe'
+            executable = (Path(directory) / 'MMVCServerSIO.exe').resolve()
             executable.touch()
             launcher = EngineLauncher(Path(directory) / 'settings')
             api = Mock()
@@ -57,13 +57,15 @@ class LauncherTests(unittest.TestCase):
                  patch('voice_changer.launcher.LocalRVC', return_value=api), \
                  patch.object(launcher.cancel, 'wait', return_value=False):
                 result = launcher.start(executable, Mock())
-                self.assertIs(result, api)
-                self.assertEqual(launcher.saved_executable(), str(executable))
-                command = popen.call_args.args[0]
-                self.assertIn('--https', command)
-                self.assertEqual(popen.call_args.kwargs['cwd'], executable.parent)
-                self.assertNotIn('shell', popen.call_args.kwargs)
-                launcher.stop()
+                try:
+                    self.assertIs(result, api)
+                    self.assertEqual(Path(launcher.saved_executable()).resolve(), executable.resolve())
+                    command = popen.call_args.args[0]
+                    self.assertIn('--https', command)
+                    self.assertEqual(popen.call_args.kwargs['cwd'], executable.parent.resolve())
+                    self.assertNotIn('shell', popen.call_args.kwargs)
+                finally:
+                    launcher.stop()
                 self.assertEqual(run.call_args.args[0], ['taskkill', '/PID', '1234', '/T', '/F'])
                 process.wait.assert_called_once()
 
