@@ -32,10 +32,10 @@ jobs:
         shell: pwsh
         run: |
           $env:VOICECHANGE_SMOKE_TEST = '1'
-          $app = Start-Process -FilePath '.\dist\VoiceChange\VoiceChange.exe' -PassThru -Wait
+          $app = Start-Process -FilePath '.\dist\VoiceChange.exe' -PassThru -Wait
           if ($app.ExitCode -ne 0) { throw "Packaged smoke test failed: $($app.ExitCode)" }
       - uses: actions/upload-artifact@v4
         with:
           name: VoiceChange-Windows-x64
-          path: dist/VoiceChange/
+          path: dist/VoiceChange.exe
           if-no-files-found: error

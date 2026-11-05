@@ -8,7 +8,6 @@ a = Analysis(['desktop.py'], pathex=[],
              hiddenimports=['_sounddevice_data', 'voice_changer.launcher'],
              hookspath=[], hooksconfig={}, runtime_hooks=[], excludes=[], noarchive=False)
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name='VoiceChange',
+exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name='VoiceChange',
           debug=False, bootloader_ignore_signals=False, strip=False, upx=False,
           console=False, disable_windowed_traceback=False)
-coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name='VoiceChange')
