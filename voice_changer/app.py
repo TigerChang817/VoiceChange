@@ -2,19 +2,24 @@
 from queue import Queue, Empty, Full
 from threading import Thread
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
+import webbrowser
 
 from .audio import LocalRVC
 from .engine import VoiceEngine
+from .launcher import EngineLauncher
 
 
 class App:
     def __init__(self, root):
         self.root = root
         root.title('VoiceChange · AI 女聲變聲器')
-        root.geometry('800x840')
-        root.minsize(760, 800)
+        root.geometry('820x960')
+        root.minsize(780, 940)
         self.events = Queue(maxsize=100)
+        self.launcher = EngineLauncher()
+        self.launching = False
+        self.shutdown_started = False
         self.api = LocalRVC()
         self.engine = VoiceEngine(self.api, self.emit)
         self.refreshing = False
@@ -29,7 +34,7 @@ class App:
         self.monitor_volume = tk.DoubleVar(value=50)
         self.pitch = tk.IntVar(value=6)
         self.seconds = tk.StringVar(value='128')
-        self.status = tk.StringVar(value='請先啟動即時引擎並載入女聲模型，再重新整理。')
+        self.status = tk.StringVar(value='首次請選擇 AI 引擎；之後會自動啟動後端。')
         self.metrics = tk.StringVar(value='等待啟動')
         self.warning = tk.StringVar()
         style = ttk.Style(root)
@@ -40,6 +45,13 @@ class App:
         body.pack(fill='both', expand=True)
         ttk.Label(body, text='把你的聲音，換個角色。', font=('Microsoft JhengHei UI', 22, 'bold')).pack(anchor='w')
         ttk.Label(body, text='本機 AI 轉換 · Windows / Discord', foreground='#5865f2').pack(anchor='w', pady=(4, 18))
+        engine_controls = ttk.Frame(body)
+        engine_controls.pack(fill='x', pady=(0, 8))
+        self.choose_engine_button = ttk.Button(engine_controls, text='選擇 AI 引擎', command=self.choose_engine)
+        self.choose_engine_button.pack(side='left')
+        self.launch_button = ttk.Button(engine_controls, text='啟動 AI 引擎', command=self.launch_engine)
+        self.launch_button.pack(side='left', padx=8)
+        ttk.Button(engine_controls, text='模型管理', command=lambda: webbrowser.open(self.api.url)).pack(side='left')
         self.input_box = self.combo(body, '麥克風輸入', self.input)
         self.output_box = self.combo(body, 'Discord 輸出裝置（CABLE Input）', self.output)
         self.monitor_box = self.combo(body, '監聽耳機（可不選；開始後可即時開關監聽）', self.monitor_device)
@@ -82,6 +94,38 @@ class App:
         root.protocol('WM_DELETE_WINDOW', self.close)
         root.after(100, self.poll)
         self.refresh()
+        if self.launcher.saved_executable():
+            root.after(500, self.launch_engine)
+
+    def choose_engine(self):
+        if self.engine.running or self.launching:
+            return
+        path = filedialog.askopenfilename(title="選擇 start_http.bat 使用的後端 exe（不要選 client 內的 Demo）", filetypes=[("MMVC 後端", "*.exe")])
+        if path:
+            self.launch_engine(path)
+
+    def launch_engine(self, path=None):
+        if self.engine.running or self.launching or self.closing:
+            return
+        if self.refreshing:
+            self.root.after(200, lambda: self.launch_engine(path))
+            return
+        path = path or self.launcher.saved_executable()
+        if not path:
+            self.choose_engine()
+            return
+        self.launching = True
+        self.set_busy(True)
+        self.launch_button.config(state="disabled")
+        self.choose_engine_button.config(state="disabled")
+        self.stop_button.config(state="disabled")
+        def work():
+            try:
+                api = self.launcher.start(path, self.emit)
+                self.emit("engine_ready", api)
+            except Exception as exc:
+                self.emit("engine_failed", str(exc))
+        Thread(target=work, daemon=True).start()
 
     def update_volume(self, _=None):
         output, monitor = self.output_volume.get(), self.monitor_volume.get()
@@ -108,7 +152,7 @@ class App:
             self.events.put_nowait((kind, value))
         except Full:
             # Retain lifecycle/error events; discard old callback telemetry.
-            if kind in ('error', 'stopped', 'refreshed'):
+            if kind in ('error', 'stopped', 'refreshed', 'engine_ready', 'engine_failed', 'shutdown_complete'):
                 try:
                     self.events.get_nowait()
                 except Empty:
@@ -119,7 +163,7 @@ class App:
                     pass
 
     def refresh(self):
-        if self.refreshing or self.engine.running:
+        if self.refreshing or self.engine.running or self.launching:
             return
         self.refreshing = True
         self.start_button.config(state='disabled')
@@ -152,9 +196,11 @@ class App:
         self.start_button.config(state='disabled' if busy else 'normal')
         self.refresh_button.config(state='disabled' if busy else 'normal')
         self.stop_button.config(state='normal' if busy else 'disabled')
+        self.launch_button.config(state='disabled' if busy else 'normal')
+        self.choose_engine_button.config(state='disabled' if busy else 'normal')
 
     def start(self):
-        if self.engine.running or self.refreshing:
+        if self.engine.running or self.refreshing or self.launching:
             return
         try:
             mic = self.inputs[self.input_box.current()][1] if self.input_box.current() >= 0 else None
@@ -182,13 +228,27 @@ class App:
 
     def close(self):
         self.closing = True
+        self.launcher.cancel.set()
         self.stop()
 
     def poll(self):
         try:
             while True:
                 kind, value = self.events.get_nowait()
-                if kind == 'refreshed':
+                if kind in ('engine_ready', 'engine_failed'):
+                    self.launching = False
+                    self.set_busy(False)
+                    if kind == 'engine_failed':
+                        self.warning.set(value)
+                    elif value is not None and not self.closing:
+                        self.api = value
+                        self.engine.api = value
+                        self.status.set('AI 引擎已就緒，無需開啟 Demo 視窗。')
+                        self.refresh()
+                elif kind == 'shutdown_complete':
+                    self.root.destroy()
+                    return
+                elif kind == 'refreshed':
                     self.refreshing = False
                     self.inputs, self.outputs, models, warning = value
                     for box, values in ((self.input_box, [x[0] for x in self.inputs]),
@@ -214,9 +274,14 @@ class App:
                         self.warning.set('推論慢於收音；可能斷續。請加大區塊、關閉其他 GPU 程式或換較小模型。')
         except Empty:
             pass
-        if self.closing and not self.engine.running:
-            self.root.destroy()
-            return
+        if self.closing and not self.engine.running and not self.launching and not self.shutdown_started:
+            self.shutdown_started = True
+            def shutdown():
+                try:
+                    self.launcher.stop()
+                finally:
+                    self.emit('shutdown_complete', '')
+            Thread(target=shutdown, daemon=True).start()
         self.root.after(100, self.poll)
 
 

@@ -1,6 +1,7 @@
 """Small PCM blocks over loopback to w-okada's streaming RVC engine."""
 import base64
 import json
+import ssl
 import time
 from urllib import request, error, parse
 
@@ -31,13 +32,17 @@ def decode_pcm(encoded, frames):
 
 class LocalRVC:
     """w-okada MMVCServerSIO /info, /update_settings, /test protocol."""
-    def __init__(self, port=18888):
-        self.url = f'http://127.0.0.1:{int(port)}'
+    def __init__(self, port=18888, cafile=None):
+        scheme = 'https' if cafile else 'http'
+        self.url = f'{scheme}://127.0.0.1:{int(port)}'
         self.slots = {}
         class NoRedirect(request.HTTPRedirectHandler):
             def redirect_request(self, *args, **kwargs):
                 return None
-        self.opener = request.build_opener(request.ProxyHandler({}), NoRedirect())
+        handlers = [request.ProxyHandler({}), NoRedirect()]
+        if cafile:
+            handlers.append(request.HTTPSHandler(context=ssl.create_default_context(cafile=str(cafile))))
+        self.opener = request.build_opener(*handlers)
 
     def call(self, path, payload=None, form=False, timeout=30):
         if payload is None:
@@ -57,10 +62,10 @@ class LocalRVC:
             detail = exc.read(1000).decode('utf-8', errors='replace')
             raise RuntimeError(f'AI 引擎錯誤 {exc.code}: {detail}') from exc
         except (error.URLError, TimeoutError) as exc:
-            raise RuntimeError('無法連接即時引擎或推論逾時；請啟動本機 HTTP 引擎（18888）。') from exc
+            raise RuntimeError(f'無法連接即時引擎或推論逾時（{self.url}）；請檢查引擎狀態。') from exc
 
-    def models(self):
-        info = self.call('/info')
+    def models(self, timeout=30):
+        info = self.call('/info', timeout=timeout)
         slots = info.get('modelSlots')
         if not isinstance(slots, list):
             raise ValueError('不相容的引擎：/info 缺少 modelSlots')

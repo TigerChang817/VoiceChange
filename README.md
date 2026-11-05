@@ -14,9 +14,9 @@ Windows 10 / 11 的桌面控制程式，用於 **麥克風 → 本機 RVC 串流
    .\scripts\setup-windows.ps1
    ```
 
-3. 從 [w-okada 官方發布頁](https://github.com/w-okada/voice-changer/blob/master/README_en.md) 取得對應 NVIDIA 的 **MMVCServerSIO / voice-changer Windows 版本**，解壓並依該版本說明啟動。此處接的是有 `/info`、`/update_settings`、`/test` 的舊版 MMVC 協定，**不假定 VCClient v2 支援同一介面**。選擇本機 HTTP 模式、連接埠 `18888`。保留 NVIDIA 驅動與套件的官方驗證；本專案不自動安裝驅動。
-4. 在引擎自己的介面匯入女聲 **RVC `.pth` 模型**，可附對應 `.index`。可從引擎提供的模型目錄挑選合適聲線；本專案未附女聲模型。只載入可信來源且授權適用的模型，`.pth` 可能包含可執行的 pickle 內容。
-5. 在引擎介面選取 NVIDIA GPU、確認模型可使用，**停止引擎介面的錄音／轉換**；同一引擎不能同時讓瀏覽器與本程式收音。
+3. 從 [w-okada 官方發布頁](https://github.com/w-okada/voice-changer/blob/master/README_en.md) 取得對應 NVIDIA 的 **MMVCServerSIO / voice-changer Windows 版本**並完整解壓縮。此處接的是有 `/info`、`/update_settings`、`/test` 的 MMVC 協定，**不假定 VCClient v2 支援同一介面**。使用官方引擎版本與可信模型，不自動安裝顯示卡驅動。
+4. 若已經用官方 Demo 載入模型，可以直接沿用。首次也可依官方說明啟動一次，準備女聲 **RVC `.pth` 或引擎支援的 ONNX 模型**，可附對應 `.index`。本專案未附模型；只載入可信來源且授權適用的模型，`.pth` 可能包含可執行的 pickle 內容。
+5. 關閉之前手動啟動的 Demo／引擎以釋放 GPU。稍後在 VoiceChange 按「選擇 AI 引擎」，選取 **`start_http.bat` 呼叫的後端 `MMVCServerSIO.exe`**；不要選 `client` 資料夾裡的 Electron Demo（有些版本的兩個 exe 同名）。程式會先檢查啟動參數，再以背景 HTTPS 模式啟動後端，不開 Demo 視窗。首次下載模型可能需要數分鐘。首次配置完成後，下次開 VoiceChange 會自動啟動，無需再手動開 Demo。
 6. 安裝 [VB-CABLE](https://vb-audio.com/Cable/)。若裝置已出現且能正常傳聲，可先使用；Discord 沒看到裝置時先完全退出再開啟。只有安裝程式明確要求或裝置無法正常載入時才重新啟動 Windows。
 7. 啟動桌面程式：
 
@@ -31,6 +31,15 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m voice_changer.app
 ```
+
+## 單一介面啟動
+
+- 「選擇 AI 引擎」：指定已解壓縮的後端 exe，成功啟動後記住路徑。「啟動 AI 引擎」可手動重試。
+- VoiceChange 使用 **`https://127.0.0.1:18889`** 與它啟動的後端通訊；在使用者本機產生專用憑證並驗證 TLS，沒有關閉驗證或安裝系統根憑證。路徑、憑證、私鑰與引擎日誌存於 `%LOCALAPPDATA%\VoiceChange`，不要提交私鑰。
+- 關閉 VoiceChange 時，只結束它自己啟動的引擎程序，不會關閉另外手動啟動的引擎。
+- 「模型管理」會在瀏覽器開啟引擎官方頁面，僅在需要管理模型時使用。瀏覽器未信任本機專用憑證，可能顯示憑證提示；VoiceChange 自身使用專用憑證驗證，不受此提示影響。也可停止本程式，使用官方 Demo 管理模型後再回來。
+- 相容舊流程：未設定整合引擎時，仍可連接手動啟動的 `http://127.0.0.1:18888`。
+- **Windows 原始執行檔與 RTX 3060 Ti 的整合啟動仍待實機驗證。** 已驗證啟動參數、憑證、狀態切換及程序管理邏輯；不代表已在 Windows 執行引擎成功。
 
 ## Discord 設定
 
@@ -64,6 +73,6 @@ Windows 的麥克風與 CABLE 裝置都設為 48000Hz，允許桌面應用程式
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-測試涵蓋 PCM 格式／時間戳、模型與設定交握、錯誤回應、有限播放緩衝、停止與過載丟棄等邏輯。測試替身不會產生真實 AI 女聲，無法取代 Windows 音訊、GPU 模型與 Discord 的實測。音訊只傳到 `127.0.0.1:18888`，不落地錄音、不上傳遠端；引擎初次啟動與模型下載另需網路。
+測試涵蓋 PCM 格式／時間戳、模型與設定交握、錯誤回應、有限播放緩衝、停止與過載丟棄等邏輯。測試替身不會產生真實 AI 女聲，無法取代 Windows 音訊、GPU 模型與 Discord 的實測。音訊只傳到本機引擎（整合模式 `https://127.0.0.1:18889`，手動模式 `http://127.0.0.1:18888`），不落地錄音、不上傳遠端；引擎初次啟動與模型下載另需網路。
 
 舊的 Java 猜數字程式已移除；這個專案現在以變聲器為主。
