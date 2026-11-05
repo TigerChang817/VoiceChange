@@ -11,7 +11,7 @@ from .engine import VoiceEngine
 class App:
     def __init__(self, root):
         self.root = root
-        root.title('Time Killer · AI 女聲變聲器')
+        root.title('VoiceChange · AI 女聲變聲器')
         root.geometry('780x640')
         root.minsize(720, 600)
         self.events = Queue(maxsize=100)

@@ -1,4 +1,4 @@
-# Time Killer · AI 即時女聲變聲器
+# VoiceChange · AI 即時女聲變聲器
 
 Windows 10 / 11 的桌面控制程式，用於 **麥克風 → 本機 RVC 串流轉換 → 虛擬麥克風 → Discord**。
 使用 Python / Tk，AI 核心接 [w-okada/voice-changer](https://github.com/w-okada/voice-changer) 的 MMVCServerSIO 引擎；不是從零訓練的語音模型。

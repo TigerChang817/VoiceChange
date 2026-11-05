@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd /workspace/time-killer
+project_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$project_root"
 setup=/workspace/.setup
 python3 -m venv "$setup/voice-venv"
 "$setup/voice-venv/bin/python" -m pip install -r requirements.txt
@@ -17,6 +18,6 @@ for pkg in "$setup"/libportaudio2_*.deb; do dpkg-deb -x "$pkg" "$setup/portaudio
 ln -sf libportaudio.so.2 "$setup/portaudio/usr/lib/x86_64-linux-gnu/libportaudio.so"
 export LIBRARY_PATH="$setup/portaudio/usr/lib/x86_64-linux-gnu${LIBRARY_PATH:+:$LIBRARY_PATH}"
 export LD_LIBRARY_PATH="$setup/portaudio/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-cd /workspace/time-killer
+cd "$project_root"
 "$setup/voice-venv/bin/python" -c 'import sounddevice as sd; print("PortAudio:", sd.get_portaudio_version())'
 "$setup/voice-venv/bin/python" -m unittest discover -s tests -v
