@@ -1,16 +1,67 @@
-# time-killer
+# Time Killer · AI 即時女聲變聲器
 
-1.目前已經有猜數字遊戲了 GuessNumber.class 下載完 用java執行即可
+Windows 10 / 11 的桌面控制程式，用於 **麥克風 → 本機 RVC 串流轉換 → 虛擬麥克風 → Discord**。
+使用 Python / Tk，AI 核心接 [w-okada/voice-changer](https://github.com/w-okada/voice-changer) 的 MMVCServerSIO 引擎；不是從零訓練的語音模型。
 
-```java {存放GuessNumber.class的路徑}/GuessNumber```
+以即時聊天為設計目標：48kHz、64–256ms PCM 區塊、AI 引擎保留上下文及 SOLA 接縫處理、GPU 預熱、有限緩衝與過期音訊丟棄。**尚未在 Windows / NVIDIA / Discord 上完成端到端實測，不保證特定延遲或女聲自然度。** 不採用先錄一整段再做檔案轉換的流程。
 
-在上班玩不一定會被發現喔>////<
+## Windows 安裝
 
-還會陸續有小遊戲讓大家玩，記得幫我點顆星星喔 <3
+1. 安裝 [Python 3.11](https://www.python.org/downloads/)（含 Tcl/Tk 與 py launcher）。
+2. 在專案目錄開啟 PowerShell，執行：
 
-大家還想玩啥小遊戲呢?
+   ```powershell
+   .\scripts\setup-windows.ps1
+   ```
 
+3. 從 [w-okada 官方發布頁](https://github.com/w-okada/voice-changer/blob/master/README_en.md) 取得對應 NVIDIA 的 **MMVCServerSIO / voice-changer Windows 版本**，解壓並依該版本說明啟動。此處接的是有 `/info`、`/update_settings`、`/test` 的舊版 MMVC 協定，**不假定 VCClient v2 支援同一介面**。選擇本機 HTTP 模式、連接埠 `18888`。保留 NVIDIA 驅動與套件的官方驗證；本專案不自動安裝驅動。
+4. 在引擎自己的介面匯入女聲 **RVC `.pth` 模型**，可附對應 `.index`。可從引擎提供的模型目錄挑選合適聲線；本專案未附女聲模型。只載入可信來源且授權適用的模型，`.pth` 可能包含可執行的 pickle 內容。
+5. 在引擎介面選取 NVIDIA GPU、確認模型可使用，**停止引擎介面的錄音／轉換**；同一引擎不能同時讓瀏覽器與本程式收音。
+6. 安裝 [VB-CABLE](https://vb-audio.com/Cable/)。若裝置已出現且能正常傳聲，可先使用；Discord 沒看到裝置時先完全退出再開啟。只有安裝程式明確要求或裝置無法正常載入時才重新啟動 Windows。
+7. 啟動桌面程式：
 
-## Stargazers over time
+   ```powershell
+   .\scripts\start-windows.ps1
+   ```
 
-[![Stargazers over time](https://starcharts.herokuapp.com/TigerChang817/time-killer.svg)](https://starcharts.herokuapp.com/TigerChang817/time-killer)
+若 PowerShell 執行政策阻擋 `.ps1`，可直接執行對應命令，無須修改系統政策：
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m voice_changer.app
+```
+
+## Discord 設定
+
+| 位置 | 裝置 |
+| --- | --- |
+| 本程式「麥克風輸入」 | 你的實體麥克風，優先試 WASAPI |
+| 本程式「輸出裝置」 | **CABLE Input**，優先試 WASAPI |
+| Discord「輸入裝置」 | **CABLE Output** |
+| Discord「輸出裝置」 | 耳機 |
+
+Windows 的麥克風與 CABLE 裝置都設為 48000Hz，允許桌面應用程式存取麥克風。先關閉 Discord 的 Krisp、降噪、自動增益，避免二次處理。不要將 CABLE Output / 立體聲混音選成本程式輸入，也不要把 Discord 聲音送回 CABLE，否則會回授。
+
+第一次先選耳機作為輸出、戴耳機試聽。選模型、音高先試 `+6` 半音、區塊先用 **128ms**，按「開始變聲」。音高與模型需停止後再調整。試聽滿意後停止，改選 CABLE Input 再開始，於 Discord 麥克風測試確認只有轉換後的聲音。停止、引擎失敗或逾時時不會自動直通原聲；Windows 的其他「聆聽此裝置」路由需自行關閉。
+
+## 即時速度怎麼調
+
+- 先看「推論往返」能否持續小於區塊長度。若 128ms 區塊的推論往返超過 128ms，無法持續跟上收音，會丟棄舊音訊，不能視為可用的即時聊天。
+- RTX 3060 Ti 先用 128ms 起測；有餘裕時試 96ms、64ms；斷音就回到 128ms 或 192ms。區塊太小可能降低辨識與音色穩定度。
+- 引擎內的 extra/context、crossfade、F0 與索引搜尋也會影響 GPU 負載與效果；先用官方預設，依該版本說明逐項調整。這些由引擎管理，本程式不額外疊加 250ms 上下文或重複接縫處理。
+- 觀察「排隊」與丟棄數。程式最多保留一段待處理輸入、兩段輸出；過載會斷續，避免越講延遲越長。UI 的往返數值**不是完整端到端延遲**。
+- 輸出 PortAudio 使用低延遲模式；優先 WASAPI。關閉其他 GPU 密集程式。顯示卡型號、模型與驅動都會影響速度，RTX 50 系列尤其要確認引擎的 PyTorch/CUDA 支援。
+- 先把本機麥克風到 CABLE 的實測額外延遲控制在約 **150–250ms 內作為調校目標**；這是目標，尚無本機量測證據。Discord 與網路還會再增加延遲。若無法達成，應評估更輕量的模型或不同串流引擎。
+
+測量時錄下同一個短促聲音的原始麥克風與 CABLE Output 兩條軌道，比較波形起點差；連續說話至少 5 分鐘，確認延遲沒有累積、沒有原聲漏出且丟棄數不持續增加。不要只憑 UI 推論時間宣稱延遲達標。
+
+## 開發與驗證
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+測試涵蓋 PCM 格式／時間戳、模型與設定交握、錯誤回應、有限播放緩衝、停止與過載丟棄等邏輯。測試替身不會產生真實 AI 女聲，無法取代 Windows 音訊、GPU 模型與 Discord 的實測。音訊只傳到 `127.0.0.1:18888`，不落地錄音、不上傳遠端；引擎初次啟動與模型下載另需網路。
+
+舊的 Java 猜數字程式已移除；這個專案現在以變聲器為主。
