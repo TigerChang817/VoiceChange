@@ -1,4 +1,5 @@
 """Audio callbacks only copy data; AI runs on a separate thread."""
+from contextlib import ExitStack
 from collections import deque
 from queue import Queue, Empty, Full
 from threading import Event, Lock, Thread
@@ -43,28 +44,70 @@ class PlaybackBuffer:
         return out
 
 
+class OutputMixer:
+    """Independent Discord and headphone paths with live volume controls."""
+    def __init__(self):
+        self.lock = Lock()
+        self.enabled = False
+        self.output_gain = 1.0
+        self.monitor_gain = .5
+        self.reset(RATE)
+
+    def reset(self, frames):
+        with self.lock:
+            self.main = PlaybackBuffer(frames * 2)
+            self.monitor = PlaybackBuffer(frames * 2)
+
+    def set_monitor(self, enabled):
+        with self.lock:
+            self.enabled = bool(enabled)
+            self.monitor = PlaybackBuffer(self.main.limit)
+
+    def set_volume(self, output=None, monitor=None):
+        with self.lock:
+            if output is not None:
+                self.output_gain = max(0., min(2., float(output)))
+            if monitor is not None:
+                self.monitor_gain = max(0., min(1., float(monitor)))
+
+    def put(self, audio):
+        with self.lock:
+            self.main.put(audio)
+            if self.enabled:
+                self.monitor.put(audio)
+
+    def read(self, frames, monitor=False):
+        with self.lock:
+            if monitor and not self.enabled:
+                return np.zeros(frames, np.float32)
+            buffer = self.monitor if monitor else self.main
+            gain = self.monitor_gain if monitor else self.output_gain
+            return np.clip(buffer.read(frames) * gain, -.98, .98)
+
+
 class VoiceEngine:
     def __init__(self, api, notify):
         self.api, self.notify = api, notify
         self.stop_event = Event()
         self.thread = None
+        self.mixer = OutputMixer()
 
     @property
     def running(self):
         return self.thread is not None and self.thread.is_alive()
 
-    def start(self, input_device, output_device, output_channels, seconds, model, pitch):
+    def start(self, input_device, output_device, output_channels, seconds, model, pitch, monitor_device=None, monitor_channels=2):
         if self.running:
             raise RuntimeError('上一個音訊工作尚未結束')
         self.stop_event.clear()
         self.thread = Thread(target=self._run, args=(input_device, output_device,
-                             output_channels, seconds, model, pitch), daemon=True)
+                             output_channels, seconds, model, pitch, monitor_device, monitor_channels), daemon=True)
         self.thread.start()
 
     def stop(self):
         self.stop_event.set()
 
-    def _run(self, input_device, output_device, channels, seconds, model, pitch):
+    def _run(self, input_device, output_device, channels, seconds, model, pitch, monitor_device=None, monitor_channels=2):
         try:
             import sounddevice as sd
             self.notify('status', '載入模型中，首次啟動可能需要下載基礎模型…')
@@ -73,7 +116,7 @@ class VoiceEngine:
             if self.stop_event.is_set():
                 return
             incoming = Queue(maxsize=1)
-            playback = PlaybackBuffer(frames * 2)
+            self.mixer.reset(frames)
             dropped = 0
             last_level = 0.
 
@@ -100,16 +143,31 @@ class VoiceEngine:
                 if self.stop_event.is_set():
                     outdata.fill(0)
                 else:
-                    outdata[:] = playback.read(count)[:, None]
+                    outdata[:] = self.mixer.read(count)[:, None]
                 if status:
                     self.notify('warning', str(status))
 
+            def monitor_output(outdata, count, timing, status):
+                if self.stop_event.is_set():
+                    outdata.fill(0)
+                else:
+                    outdata[:] = self.mixer.read(count, monitor=True)[:, None]
+                if status:
+                    self.notify('warning', '監聽：' + str(status))
+
+            if monitor_device == output_device:
+                raise ValueError('監聽請選耳機，並與 Discord 輸出裝置分開')
             sd.check_input_settings(device=input_device, channels=1, samplerate=RATE)
             sd.check_output_settings(device=output_device, channels=channels, samplerate=RATE)
-            with sd.OutputStream(device=output_device, channels=channels, samplerate=RATE,
-                                 dtype='float32', latency='low', callback=output), sd.InputStream(
-                                 device=input_device, channels=1, samplerate=RATE,
-                                 blocksize=frames, dtype='float32', latency='low', callback=capture):
+            with ExitStack() as streams:
+                streams.enter_context(sd.OutputStream(device=output_device, channels=channels,
+                    samplerate=RATE, dtype='float32', latency='low', callback=output))
+                if monitor_device is not None:
+                    sd.check_output_settings(device=monitor_device, channels=monitor_channels, samplerate=RATE)
+                    streams.enter_context(sd.OutputStream(device=monitor_device, channels=monitor_channels,
+                        samplerate=RATE, dtype='float32', latency='low', callback=monitor_output))
+                streams.enter_context(sd.InputStream(device=input_device, channels=1, samplerate=RATE,
+                    blocksize=frames, dtype='float32', latency='low', callback=capture))
                 self.notify('status', '轉換中；請戴耳機，避免回授')
                 while not self.stop_event.is_set():
                     try:
@@ -124,9 +182,9 @@ class VoiceEngine:
                     elapsed = time.monotonic() - started
                     if self.stop_event.is_set():
                         break
-                    playback.put(result)
+                    self.mixer.put(result)
                     self.notify('metrics', {'inference': elapsed, 'chunk': seconds,
-                                'dropped': dropped, 'output_dropped': playback.dropped,
+                                'dropped': dropped, 'output_dropped': self.mixer.main.dropped,
                                 'level': last_level, 'queue_ms': (started - captured) * 1000})
         except Exception as exc:
             self.notify('error', str(exc))

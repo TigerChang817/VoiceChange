@@ -7,7 +7,7 @@ from voice_changer.engine import VoiceEngine
 
 
 class EngineTests(unittest.TestCase):
-    def run_engine(self, fail=False):
+    def run_engine(self, fail=False, monitor=False):
         events, outputs, state = [], [], {}
         class API:
             def prepare(self, model, pitch, frames):
@@ -25,7 +25,7 @@ class EngineTests(unittest.TestCase):
                     for value in (.2, .4, .6):
                         self.kwargs['callback'](np.full((6144, 1), value, np.float32), 6144, None, None)
                 else:
-                    state['output'] = self.kwargs['callback']
+                    state['output' if self.kwargs['device'] == 2 else 'monitor'] = self.kwargs['callback']
                 return self
             def __exit__(self, *args):
                 state['closed'] = state.get('closed', 0) + 1
@@ -37,15 +37,20 @@ class EngineTests(unittest.TestCase):
                 block = np.empty((6144, 2), dtype=np.float32)
                 state['output'](block, 6144, None, None)
                 outputs.append(block)
+                if monitor:
+                    monitor_block = np.empty((6144, 2), dtype=np.float32)
+                    state['monitor'](monitor_block, 6144, None, None)
+                    outputs.append(monitor_block)
                 engine.stop()
         engine = VoiceEngine(API(), notify)
+        engine.mixer.set_monitor(monitor)
         with patch.dict('sys.modules', {'sounddevice': sd}):
-            engine._run(1, 2, 2, .128, 'female', 6)
+            engine._run(1, 2, 2, .128, 'female', 6, 3 if monitor else None)
         # Callback after stop must emit silence, never dry input.
         after_stop = np.ones((64, 2), np.float32)
         state['output'](after_stop, 64, None, None)
         np.testing.assert_array_equal(after_stop, np.zeros((64, 2)))
-        self.assertEqual(state['closed'], 2)
+        self.assertEqual(state['closed'], 3 if monitor else 2)
         self.assertEqual(events[-1][0], 'stopped')
         self.assertEqual(state['prepared'], ('female', 6, 6144))
         return events, outputs
@@ -60,3 +65,43 @@ class EngineTests(unittest.TestCase):
         events, outputs = self.run_engine(fail=True)
         self.assertEqual(outputs, [])
         self.assertIn(('error', 'GPU unavailable'), events)
+
+    def test_second_output_gets_converted_voice_at_monitor_volume(self):
+        _, outputs = self.run_engine(monitor=True)
+        np.testing.assert_allclose(outputs[0], .3, atol=1e-6)
+        np.testing.assert_allclose(outputs[1], .15, atol=1e-6)
+
+    def test_monitor_stream_closes_on_inference_failure(self):
+        events, outputs = self.run_engine(fail=True, monitor=True)
+        self.assertEqual(outputs, [])
+        self.assertIn(('error', 'GPU unavailable'), events)
+
+
+class MixerTests(unittest.TestCase):
+    def test_monitor_toggle_does_not_interrupt_discord_or_replay_old_audio(self):
+        from voice_changer.engine import OutputMixer
+        mixer = OutputMixer()
+        mixer.reset(8)
+        mixer.put(np.full(4, .4))
+        np.testing.assert_array_equal(mixer.read(4, monitor=True), np.zeros(4))
+        np.testing.assert_allclose(mixer.read(4), .4)
+        mixer.set_monitor(True)
+        mixer.put(np.full(4, .6))
+        np.testing.assert_allclose(mixer.read(2, monitor=True), .3)
+        mixer.set_monitor(False)
+        np.testing.assert_array_equal(mixer.read(2, monitor=True), np.zeros(2))
+        np.testing.assert_allclose(mixer.read(4), .6)
+        mixer.set_monitor(True)
+        np.testing.assert_array_equal(mixer.read(4, monitor=True), np.zeros(4))
+
+    def test_live_volumes_are_independent_and_clipped(self):
+        from voice_changer.engine import OutputMixer
+        mixer = OutputMixer()
+        mixer.set_monitor(True)
+        mixer.put(np.full(8, .6))
+        mixer.set_volume(output=0, monitor=.5)
+        np.testing.assert_array_equal(mixer.read(4), np.zeros(4))
+        np.testing.assert_allclose(mixer.read(4, monitor=True), .3)
+        mixer.set_volume(output=2, monitor=0)
+        np.testing.assert_allclose(mixer.read(4), .98)
+        np.testing.assert_array_equal(mixer.read(4, monitor=True), np.zeros(4))

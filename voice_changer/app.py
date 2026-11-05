@@ -12,8 +12,8 @@ class App:
     def __init__(self, root):
         self.root = root
         root.title('VoiceChange · AI 女聲變聲器')
-        root.geometry('780x640')
-        root.minsize(720, 600)
+        root.geometry('800x840')
+        root.minsize(760, 800)
         self.events = Queue(maxsize=100)
         self.api = LocalRVC()
         self.engine = VoiceEngine(self.api, self.emit)
@@ -23,6 +23,10 @@ class App:
         self.model = tk.StringVar()
         self.input = tk.StringVar()
         self.output = tk.StringVar()
+        self.monitor_device = tk.StringVar()
+        self.monitor_enabled = False
+        self.output_volume = tk.DoubleVar(value=100)
+        self.monitor_volume = tk.DoubleVar(value=50)
         self.pitch = tk.IntVar(value=6)
         self.seconds = tk.StringVar(value='128')
         self.status = tk.StringVar(value='請先啟動即時引擎並載入女聲模型，再重新整理。')
@@ -37,7 +41,8 @@ class App:
         ttk.Label(body, text='把你的聲音，換個角色。', font=('Microsoft JhengHei UI', 22, 'bold')).pack(anchor='w')
         ttk.Label(body, text='本機 AI 轉換 · Windows / Discord', foreground='#5865f2').pack(anchor='w', pady=(4, 18))
         self.input_box = self.combo(body, '麥克風輸入', self.input)
-        self.output_box = self.combo(body, '輸出裝置（Discord 選 CABLE Input；試聽選耳機）', self.output)
+        self.output_box = self.combo(body, 'Discord 輸出裝置（CABLE Input）', self.output)
+        self.monitor_box = self.combo(body, '監聽耳機（可不選；開始後可即時開關監聽）', self.monitor_device)
         self.model_box = self.combo(body, '女聲 RVC 模型', self.model)
         row = ttk.Frame(body)
         row.pack(fill='x', pady=8)
@@ -48,6 +53,19 @@ class App:
         self.seconds_box = ttk.Combobox(row, values=('64', '96', '128', '192', '256'), textvariable=self.seconds, width=5, state='readonly')
         self.seconds_box.pack(side='left', padx=10)
         ttk.Label(body, text='先試 +6 半音，再依模型調整。實際延遲包含區塊、推論與緩衝。', wraplength=700).pack(anchor='w')
+        listening = ttk.Frame(body)
+        listening.pack(fill='x', pady=8)
+        self.monitor_button = ttk.Button(listening, text='監聽：關（點我聽自己）', command=self.toggle_monitor)
+        self.monitor_button.pack(side='left')
+        self.output_volume_label = tk.StringVar(value='Discord 音量：100%')
+        self.monitor_volume_label = tk.StringVar(value='監聽音量：50%')
+        for label, variable, maximum in ((self.output_volume_label, self.output_volume, 200),
+                                         (self.monitor_volume_label, self.monitor_volume, 100)):
+            volume_row = ttk.Frame(body)
+            volume_row.pack(fill='x', pady=3)
+            ttk.Label(volume_row, textvariable=label, width=23).pack(side='left')
+            ttk.Scale(volume_row, from_=0, to=maximum, variable=variable,
+                      command=self.update_volume).pack(side='left', fill='x', expand=True)
         controls = ttk.Frame(body)
         controls.pack(fill='x', pady=18)
         self.refresh_button = ttk.Button(controls, text='重新整理裝置 / 模型', command=self.refresh)
@@ -64,6 +82,20 @@ class App:
         root.protocol('WM_DELETE_WINDOW', self.close)
         root.after(100, self.poll)
         self.refresh()
+
+    def update_volume(self, _=None):
+        output, monitor = self.output_volume.get(), self.monitor_volume.get()
+        self.output_volume_label.set(f'Discord 音量：{output:.0f}%')
+        self.monitor_volume_label.set(f'監聽音量：{monitor:.0f}%')
+        self.engine.mixer.set_volume(output=output / 100, monitor=monitor / 100)
+
+    def toggle_monitor(self):
+        if not self.monitor_enabled and self.monitor_box.current() < 0:
+            messagebox.showinfo('選擇耳機', '請先選監聽耳機；若正在變聲，請先停止再選裝置。')
+            return
+        self.monitor_enabled = not self.monitor_enabled
+        self.engine.mixer.set_monitor(self.monitor_enabled)
+        self.monitor_button.config(text='監聽：開（點我關閉）' if self.monitor_enabled else '監聽：關（點我聽自己）')
 
     def combo(self, parent, label, variable):
         ttk.Label(parent, text=label).pack(anchor='w', pady=(6, 2))
@@ -115,7 +147,7 @@ class App:
         Thread(target=work, daemon=True).start()
 
     def set_busy(self, busy):
-        for widget in (self.input_box, self.output_box, self.model_box, self.pitch_box, self.seconds_box):
+        for widget in (self.input_box, self.output_box, self.monitor_box, self.model_box, self.pitch_box, self.seconds_box):
             widget.config(state='disabled' if busy else 'readonly')
         self.start_button.config(state='disabled' if busy else 'normal')
         self.refresh_button.config(state='disabled' if busy else 'normal')
@@ -129,9 +161,16 @@ class App:
             output = self.outputs[self.output_box.current()] if self.output_box.current() >= 0 else None
             if mic is None or output is None or not self.model.get():
                 raise ValueError('請選擇麥克風、輸出裝置與模型。')
+            monitor = self.outputs[self.monitor_box.current()] if self.monitor_box.current() >= 0 else None
+            if self.monitor_enabled and monitor is None:
+                raise ValueError('請選擇監聽耳機。')
+            if monitor is not None and monitor[1] == output[1]:
+                raise ValueError('監聽耳機與 Discord 輸出請選不同裝置，避免聲音重複。')
+            self.update_volume()
             self.warning.set('')
             self.set_busy(True)
-            self.engine.start(mic, output[1], output[2], float(self.seconds.get()) / 1000, self.model.get(), self.pitch.get())
+            self.engine.start(mic, output[1], output[2], float(self.seconds.get()) / 1000, self.model.get(), self.pitch.get(),
+                              monitor[1] if monitor else None, monitor[2] if monitor else 2)
         except Exception as exc:
             self.set_busy(False)
             messagebox.showerror('無法開始', str(exc))
@@ -153,7 +192,8 @@ class App:
                     self.refreshing = False
                     self.inputs, self.outputs, models, warning = value
                     for box, values in ((self.input_box, [x[0] for x in self.inputs]),
-                                        (self.output_box, [x[0] for x in self.outputs]), (self.model_box, models)):
+                                        (self.output_box, [x[0] for x in self.outputs]),
+                                        (self.monitor_box, [x[0] for x in self.outputs]), (self.model_box, models)):
                         previous = box.get()
                         box['values'] = values
                         box.set(previous if previous in values else '')
