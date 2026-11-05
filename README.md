@@ -7,11 +7,15 @@ Windows 10 / 11 的桌面控制程式，用於 **麥克風 → 本機 RVC 串流
 
 ## 桌面執行檔與捷徑
 
-### 從 GitHub 下載
+### git pull 後直接使用
 
-到儲存庫的 **Actions → Build Windows desktop app**，選擇對應最新版提交且成功的執行紀錄，下載 **VoiceChange-Windows-x64** artifact（下載可能需要登入 GitHub）。完整解壓縮，雙擊 `VoiceChange.exe`。新版使用單一 exe，不需要 `_internal` 資料夾。
+在專案資料夾執行 `git pull origin master`，然後雙擊根目錄的 **`VoiceChange.exe`**。這是單一執行檔，不需要 Python 或 `_internal` 資料夾；首次啟動解壓縮內含元件可能稍久。
 
-對 `VoiceChange.exe` 按右鍵 → 顯示其他選項 → 傳送到 → 桌面（建立捷徑）。這個版本不需要另外安裝 Python；AI 引擎、模型與 VB-CABLE 仍需保留。執行檔尚未數位簽章，Windows 可能顯示發行者不明；請只使用自己信任且對應本儲存庫的建置。
+對 exe 按右鍵 → 顯示其他選項 → 傳送到 → 桌面（建立捷徑），之後即可直接從桌面啟動。**更新前先關閉 VoiceChange**，避免 Windows 鎖住 exe 導致 pull 失敗。AI 引擎、模型與 VB-CABLE 仍需保留。
+
+Windows 建置工作會在測試、打包及啟動檢查通過後，自動將 exe 與 `VoiceChange.exe.sha256` 提交回 `master`。新程式碼推送後需等建置成功，exe 才會更新；不需要另外下載 Actions artifact。此自動提交流程已獲儲存庫擁有者同意。
+
+執行檔尚未數位簽章，Windows 可能顯示發行者不明；請只使用自己信任且對應本儲存庫的建置。
 
 ### 在自己的 Windows 打包
 

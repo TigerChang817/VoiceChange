@@ -12,11 +12,18 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: windows-desktop-master
+  cancel-in-progress: true
 jobs:
   build:
+    permissions:
+      contents: write
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -39,3 +46,20 @@ jobs:
           name: VoiceChange-Windows-x64
           path: dist/VoiceChange.exe
           if-no-files-found: error
+      - name: Commit verified executable to master
+        shell: pwsh
+        run: |
+          Copy-Item 'dist/VoiceChange.exe' 'VoiceChange.exe' -Force
+          $hash = (Get-FileHash 'VoiceChange.exe' -Algorithm SHA256).Hash.ToLower()
+          "$hash  VoiceChange.exe" | Set-Content -Encoding ascii 'VoiceChange.exe.sha256'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- VoiceChange.exe VoiceChange.exe.sha256
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { exit 0 }
+          git commit -m 'Update Windows executable [skip ci]'
+          if ($LASTEXITCODE -ne 0) { throw 'Executable commit failed' }
+          git pull --rebase origin master
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot rebase executable commit' }
+          git push origin HEAD:master
+          if ($LASTEXITCODE -ne 0) { throw 'Executable push failed' }
